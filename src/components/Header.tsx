@@ -63,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModa
 
           {/* Validation Status, Server Sync & Quick Actions */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Server Sync Status Badge */}
+            {/* Server / Device Storage Status Badge */}
             <button
               onClick={() => refreshFromServer()}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
@@ -72,12 +72,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModa
                   : syncStatus === 'syncing'
                   ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-300'
                   : syncStatus === 'offline'
-                  ? 'bg-amber-950/40 border-amber-500/30 text-amber-300'
+                  ? 'bg-slate-800/80 border-slate-700 text-slate-300'
                   : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
               }`}
-              title="Server connection status. Click to reload from server."
+              title={
+                syncStatus === 'synced'
+                  ? 'Authoritative server persistence active. All records are saved to the server.'
+                  : syncStatus === 'offline'
+                  ? 'Persistent device storage active. Data is safely retained in your browser.'
+                  : 'Click to retry connection to server.'
+              }
             >
-              <Database className="w-3.5 h-3.5 shrink-0" />
+              <Database className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
               {syncStatus === 'synced' && (
                 <>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -87,19 +93,19 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModa
               {syncStatus === 'syncing' && (
                 <>
                   <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />
-                  <span>Syncing...</span>
+                  <span>Saving...</span>
                 </>
               )}
               {syncStatus === 'offline' && (
                 <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                  <span>Local Mode</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span>Device Saved</span>
                 </>
               )}
               {syncStatus === 'error' && (
                 <>
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
-                  <span>Sync Error</span>
+                  <span>Sync Warning</span>
                 </>
               )}
             </button>

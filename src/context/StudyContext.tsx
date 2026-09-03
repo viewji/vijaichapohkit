@@ -68,8 +68,12 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
     }
-    // If server is not reachable or returned error, fall back to local cached copy
-    setSyncStatus(res.error?.includes('Failed to fetch') || res.error?.includes('Network') ? 'offline' : 'error');
+    // If server is not reachable or backend unavailable (e.g. deployed to Vercel static hosting), fall back gracefully to local storage
+    if (res.isBackendUnavailable || res.error === 'BACKEND_UNAVAILABLE') {
+      setSyncStatus('offline');
+    } else {
+      setSyncStatus(res.error?.includes('Failed to fetch') || res.error?.includes('Network') ? 'offline' : 'error');
+    }
   }, []);
 
   useEffect(() => {
@@ -196,10 +200,24 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setEnrolledModalSlot(updatedSlot);
     setSyncStatus('offline');
 
-    // Try background sync to server
-    saveSchemeOnServer(localScheme).then((r) => {
-      if (r.success) setSyncStatus('synced');
-    });
+    // Trigger celebratory confetti for local enrollment
+    try {
+      confetti({
+        particleCount: 50,
+        spread: 60,
+        origin: { y: 0.65 },
+        colors: updatedSlot.arm === 'Walking Bike' ? ['#10b981', '#34d399', '#6ee7b7'] : ['#6366f1', '#818cf8', '#a5b4fc'],
+      });
+    } catch {
+      // ignore
+    }
+
+    // Try background sync to server only if backend is potentially available
+    if (!res.isBackendUnavailable) {
+      saveSchemeOnServer(localScheme).then((r) => {
+        if (r.success) setSyncStatus('synced');
+      });
+    }
 
     return { success: true, slot: updatedSlot };
   };
