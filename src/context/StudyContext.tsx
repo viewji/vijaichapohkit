@@ -4,7 +4,7 @@ import { AllocationSlot, EnrollmentPayload, StratumStats, StudyScheme, SyncStatu
 import { generateRandomizationScheme, validateSchemeIntegrity, STUDY_PARAMS } from '../lib/randomization';
 import { fetchStudyFromServer, enrollSubjectOnServer, saveSchemeOnServer, resetStudyOnServer } from '../lib/api';
 
-const STORAGE_KEY = 'RCT_STRATIFIED_RANDOMIZATION_DATA_V1';
+const STORAGE_KEY = 'RCT_CENTRAL_STUDY_CACHE_V2';
 const MASKING_STORAGE_KEY = 'RCT_ALLOCATION_MASKING_PREF_V1';
 
 interface StudyContextType {
@@ -23,12 +23,13 @@ interface StudyContextType {
   totalEnrolled: number;
   syncStatus: SyncStatus;
   refreshFromServer: () => Promise<void>;
+  cloudDbName?: string;
 }
 
 const StudyContext = createContext<StudyContextType | null>(null);
 
 export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Initialize scheme from localStorage as immediate cache while server request is in flight
+  // Read-only cache while central server responds
   const [scheme, setScheme] = useState<StudyScheme>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -40,14 +41,15 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       }
     } catch (e) {
-      console.error('Failed to parse cached scheme from localStorage', e);
+      console.error('Failed to parse cache', e);
     }
     return generateRandomizationScheme();
   });
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
+  const [cloudDbName, setCloudDbName] = useState<string | undefined>(undefined);
 
-  // Allocation concealment is ENABLED (masked) by default to eliminate investigator bias
+  // Allocation concealment preference
   const [isMasked, setIsMasked] = useState<boolean>(() => {
     const saved = localStorage.getItem(MASKING_STORAGE_KEY);
     return saved !== null ? saved === 'true' : true;
@@ -55,29 +57,54 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [enrolledModalSlot, setEnrolledModalSlot] = useState<AllocationSlot | null>(null);
 
-  // Initial load from backend server
+  // Poll authoritative study state from central cloud database
   const refreshFromServer = useCallback(async () => {
-    setSyncStatus('syncing');
-    const res = await fetchStudyFromServer();
-    if (res.success && res.data) {
-      const val = validateSchemeIntegrity(res.data.slots);
-      if (val.isValid) {
-        setScheme(res.data);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
-        setSyncStatus('synced');
+    try {
+      const res = await fetchStudyFromServer();
+      if (res.success && res.data) {
+        const val = validateSchemeIntegrity(res.data.slots);
+        if (val.isValid) {
+          setScheme(res.data);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
+          setSyncStatus('synced');
+          if ((res as any).dbName) setCloudDbName((res as any).dbName);
+          return;
+        }
+      }
+
+      // If database is not connected on server
+      if (res.error === 'DATABASE_NOT_CONNECTED') {
+        setSyncStatus('error');
         return;
       }
-    }
-    // If server is not reachable or backend unavailable (e.g. deployed to Vercel static hosting), fall back gracefully to local storage
-    if (res.isBackendUnavailable || res.error === 'BACKEND_UNAVAILABLE') {
-      setSyncStatus('offline');
-    } else {
-      setSyncStatus(res.error?.includes('Failed to fetch') || res.error?.includes('Network') ? 'offline' : 'error');
+
+      if (res.isBackendUnavailable) {
+        setSyncStatus('offline');
+      } else {
+        setSyncStatus('error');
+      }
+    } catch {
+      setSyncStatus('error');
     }
   }, []);
 
+  // Initial fetch and automatic real-time multi-user polling every 4 seconds
   useEffect(() => {
     refreshFromServer();
+
+    // Auto-poll so changes made by other researchers appear in real-time
+    const interval = setInterval(() => {
+      refreshFromServer();
+    }, 4000);
+
+    // Also refresh immediately when tab regains focus
+    const onFocus = () => { refreshFromServer(); };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [refreshFromServer]);
 
   // Persist masking preference
@@ -133,7 +160,7 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const totalEnrolled = maleStats.enrolledTotal + femaleStats.enrolledTotal;
 
-  // Server-authoritative enrollment
+  // Strict server-authoritative enrollment: Must be saved on central server for all users!
   const enrollSubject = async (payload: EnrollmentPayload) => {
     const currentStats = payload.stratum === 'Male' ? maleStats : femaleStats;
     if (currentStats.remainingSlots <= 0) {
@@ -145,8 +172,9 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setSyncStatus('syncing');
 
-    // Attempt server-authoritative enrollment first
+    // Call central server to allocate slot for ALL users
     const res = await enrollSubjectOnServer(payload);
+
     if (res.success && res.slot && res.data) {
       setScheme(res.data);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
@@ -168,77 +196,34 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return { success: true, slot: res.slot };
     }
 
-    // Fallback: If server is offline, perform local assignment
-    console.warn('Server enrollment failed or offline, performing local fallback:', res.error);
-    const targetSlotIndex = scheme.slots.findIndex(
-      (s) => s.stratum === payload.stratum && s.status === 'Pending'
-    );
+    // If central database is offline or not connected, DO NOT invent local personal assignment!
+    setSyncStatus('error');
+    const errorMsg = res.error === 'DATABASE_NOT_CONNECTED'
+      ? 'Central cloud database is not connected in Vercel. Please ensure Vercel KV / Redis is connected so all users sync together.'
+      : (res.error || 'Failed to assign slot on central server.');
 
-    if (targetSlotIndex === -1) {
-      setSyncStatus('error');
-      return {
-        success: false,
-        error: `No unassigned slots found for ${payload.stratum}.`,
-      };
-    }
-
-    const targetSlot = scheme.slots[targetSlotIndex];
-    const updatedSlot: AllocationSlot = {
-      ...targetSlot,
-      status: 'Enrolled',
-      participantCode: payload.participantCode?.trim() || undefined,
-      notes: payload.notes?.trim() || undefined,
-      enrolledAt: new Date().toISOString(),
+    return {
+      success: false,
+      error: errorMsg,
     };
-
-    const newSlots = [...scheme.slots];
-    newSlots[targetSlotIndex] = updatedSlot;
-    const localScheme = { ...scheme, slots: newSlots };
-
-    setScheme(localScheme);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(localScheme));
-    setEnrolledModalSlot(updatedSlot);
-    setSyncStatus('offline');
-
-    // Trigger celebratory confetti for local enrollment
-    try {
-      confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: { y: 0.65 },
-        colors: updatedSlot.arm === 'Walking Bike' ? ['#10b981', '#34d399', '#6ee7b7'] : ['#6366f1', '#818cf8', '#a5b4fc'],
-      });
-    } catch {
-      // ignore
-    }
-
-    // Try background sync to server only if backend is potentially available
-    if (!res.isBackendUnavailable) {
-      saveSchemeOnServer(localScheme).then((r) => {
-        if (r.success) setSyncStatus('synced');
-      });
-    }
-
-    return { success: true, slot: updatedSlot };
   };
 
-  // Generate a completely new randomized scheme
+  // Centralized scheme generation
   const generateNewScheme = async (seed?: string) => {
     setSyncStatus('syncing');
     const fresh = generateRandomizationScheme(seed);
-    setScheme(fresh);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
-    setEnrolledModalSlot(null);
-
     const res = await saveSchemeOnServer(fresh);
-    if (res.success) {
+    if (res.success && res.data) {
+      setScheme(res.data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
       setSyncStatus('synced');
     } else {
-      setSyncStatus('offline');
+      setSyncStatus('error');
     }
+    setEnrolledModalSlot(null);
   };
 
-  // Reset enrollment status for all participants
+  // Centralized reset of enrollments
   const resetEnrollmentsOnly = async () => {
     setSyncStatus('syncing');
     const res = await resetStudyOnServer('enrollments');
@@ -247,23 +232,12 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
       setSyncStatus('synced');
     } else {
-      // Local fallback
-      const resetSlots = scheme.slots.map((s) => ({
-        ...s,
-        status: 'Pending' as const,
-        participantCode: undefined,
-        notes: undefined,
-        enrolledAt: undefined,
-      }));
-      const updated = { ...scheme, slots: resetSlots };
-      setScheme(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      setSyncStatus('offline');
+      setSyncStatus('error');
     }
     setEnrolledModalSlot(null);
   };
 
-  // Full reset
+  // Centralized full reset
   const fullStudyReset = async (seed?: string) => {
     setSyncStatus('syncing');
     const res = await resetStudyOnServer('full', seed);
@@ -294,6 +268,7 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         totalEnrolled,
         syncStatus,
         refreshFromServer,
+        cloudDbName,
       }}
     >
       {children}

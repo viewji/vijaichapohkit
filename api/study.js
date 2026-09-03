@@ -1,6 +1,5 @@
-// Vercel Serverless Function for /api/study
+// Vercel Serverless Function for /api/study (Central Multi-User Cloud Sync)
 
-// Study parameters
 const STUDY_PARAMS = {
   TOTAL_SAMPLE_SIZE: 32,
   STRATA_QUOTA: 16,
@@ -87,39 +86,48 @@ function generateDefaultScheme(seed) {
   };
 }
 
-// Check Vercel KV or Upstash credentials
-function getKvConfig() {
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-  return url && token ? { url, token } : null;
-}
-
-async function kvGet(key) {
-  const kv = getKvConfig();
-  if (!kv) return null;
-  const res = await fetch(`${kv.url}/get/${key}`, {
-    headers: { Authorization: `Bearer ${kv.token}` },
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  if (json && json.result) {
-    return typeof json.result === 'string' ? JSON.parse(json.result) : json.result;
+// Dynamically discover Vercel KV / Upstash Redis credentials under any custom database name
+export function getKvConfig() {
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    return { url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN, name: 'KV_REST_API' };
   }
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    return { url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN, name: 'UPSTASH_REDIS' };
+  }
+
+  // Scan all environment variables for Vercel Storage integration
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.endsWith('_REST_API_URL') && value) {
+      const prefix = key.replace(/_REST_API_URL$/, '');
+      const token = process.env[`${prefix}_REST_API_TOKEN`];
+      if (token) {
+        return { url: value, token, name: prefix };
+      }
+    }
+  }
+
   return null;
 }
 
-async function kvSet(key, value) {
+export async function kvCommand(args) {
   const kv = getKvConfig();
-  if (!kv) return false;
-  const res = await fetch(`${kv.url}/set/${key}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${kv.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(value),
-  });
-  return res.ok;
+  if (!kv) return null;
+  try {
+    const res = await fetch(`${kv.url}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${kv.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(args),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json ? json.result : null;
+  } catch (e) {
+    console.error('Cloud KV request error:', e);
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
@@ -134,31 +142,45 @@ export default async function handler(req, res) {
   try {
     const kv = getKvConfig();
 
+    if (!kv) {
+      // Diagnostic: Help investigator identify what database was created
+      const availableEnvKeys = Object.keys(process.env).filter(k => 
+        k.includes('KV') || k.includes('REDIS') || k.includes('URL') || k.includes('POSTGRES') || k.includes('BLOB')
+      );
+
+      return res.status(503).json({
+        success: false,
+        error: 'DATABASE_NOT_CONNECTED',
+        message: 'No cloud KV database connected in Vercel. Please create a Vercel KV or Upstash Redis database in Vercel Storage.',
+        detectedKeys: availableEnvKeys,
+      });
+    }
+
     if (req.method === 'GET') {
-      if (kv) {
-        let study = await kvGet('rct_study_data');
-        if (!study) {
-          study = generateDefaultScheme();
-          await kvSet('rct_study_data', study);
-        }
-        return res.status(200).json({ success: true, data: study, source: 'vercel_kv' });
+      const raw = await kvCommand(['GET', 'rct_study_data']);
+      let study = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+
+      if (!study || !Array.isArray(study.slots)) {
+        study = generateDefaultScheme();
+        await kvCommand(['SET', 'rct_study_data', JSON.stringify(study)]);
       }
 
-      // If KV not connected yet, signal client to use secure local persistence
       return res.status(200).json({
         success: true,
-        mode: 'client_local',
-        message: 'Vercel deployment active. Using secure client-side persistence.',
+        data: study,
+        source: 'vercel_kv',
+        dbName: kv.name,
       });
     }
 
     if (req.method === 'POST') {
       const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      if (kv) {
-        await kvSet('rct_study_data', payload);
-        return res.status(200).json({ success: true, data: payload, source: 'vercel_kv' });
+      if (!payload || !Array.isArray(payload.slots) || payload.slots.length !== STUDY_PARAMS.TOTAL_SAMPLE_SIZE) {
+        return res.status(400).json({ success: false, error: 'Invalid study payload' });
       }
-      return res.status(200).json({ success: true, data: payload, mode: 'client_local' });
+
+      await kvCommand(['SET', 'rct_study_data', JSON.stringify(payload)]);
+      return res.status(200).json({ success: true, data: payload, source: 'vercel_kv' });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

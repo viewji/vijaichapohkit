@@ -1,37 +1,45 @@
-// Vercel Serverless Function for /api/study/reset
+// Vercel Serverless Function for /api/study/reset (Centralized Multi-User Reset)
 
 function getKvConfig() {
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-  return url && token ? { url, token } : null;
-}
-
-async function kvGet(key) {
-  const kv = getKvConfig();
-  if (!kv) return null;
-  const res = await fetch(`${kv.url}/get/${key}`, {
-    headers: { Authorization: `Bearer ${kv.token}` },
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  if (json && json.result) {
-    return typeof json.result === 'string' ? JSON.parse(json.result) : json.result;
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    return { url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN, name: 'KV_REST_API' };
   }
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    return { url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN, name: 'UPSTASH_REDIS' };
+  }
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.endsWith('_REST_API_URL') && value) {
+      const prefix = key.replace(/_REST_API_URL$/, '');
+      const token = process.env[`${prefix}_REST_API_TOKEN`];
+      if (token) {
+        return { url: value, token, name: prefix };
+      }
+    }
+  }
+
   return null;
 }
 
-async function kvSet(key, value) {
+async function kvCommand(args) {
   const kv = getKvConfig();
-  if (!kv) return false;
-  const res = await fetch(`${kv.url}/set/${key}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${kv.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(value),
-  });
-  return res.ok;
+  if (!kv) return null;
+  try {
+    const res = await fetch(`${kv.url}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${kv.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(args),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json ? json.result : null;
+  } catch (e) {
+    console.error('Cloud KV reset error:', e);
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
@@ -48,29 +56,37 @@ export default async function handler(req, res) {
   }
 
   try {
+    const kv = getKvConfig();
+    if (!kv) {
+      return res.status(503).json({
+        success: false,
+        error: 'DATABASE_NOT_CONNECTED',
+        message: 'Cannot reset: Central database is not connected in Vercel.',
+      });
+    }
+
     const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const { resetType } = payload;
-    const kv = getKvConfig();
 
-    if (kv) {
-      const current = await kvGet('rct_study_data');
-      if (current) {
-        if (resetType === 'enrollments') {
-          const resetSlots = current.slots.map(s => ({
-            ...s,
-            status: 'Pending',
-            participantCode: undefined,
-            notes: undefined,
-            enrolledAt: undefined,
-          }));
-          const updated = { ...current, slots: resetSlots };
-          await kvSet('rct_study_data', updated);
-          return res.status(200).json({ success: true, data: updated });
-        }
+    const raw = await kvCommand(['GET', 'rct_study_data']);
+    let current = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+
+    if (current && Array.isArray(current.slots)) {
+      if (resetType === 'enrollments') {
+        const resetSlots = current.slots.map(s => ({
+          ...s,
+          status: 'Pending',
+          participantCode: undefined,
+          notes: undefined,
+          enrolledAt: undefined,
+        }));
+        const updated = { ...current, slots: resetSlots };
+        await kvCommand(['SET', 'rct_study_data', JSON.stringify(updated)]);
+        return res.status(200).json({ success: true, data: updated, source: 'vercel_kv' });
       }
     }
 
-    return res.status(200).json({ success: true, mode: 'client_local' });
+    return res.status(200).json({ success: true, message: 'Reset completed' });
   } catch (err) {
     console.error('API /reset error:', err);
     return res.status(500).json({ success: false, error: err.message });

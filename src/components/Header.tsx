@@ -64,48 +64,39 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModa
           {/* Validation Status, Server Sync & Quick Actions */}
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Server / Device Storage Status Badge */}
+            {/* Central Multi-User Cloud Sync Badge */}
             <button
               onClick={() => refreshFromServer()}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
                 syncStatus === 'synced'
-                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+                  ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 ring-1 ring-emerald-500/30'
                   : syncStatus === 'syncing'
                   ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-300'
-                  : syncStatus === 'offline'
-                  ? 'bg-slate-800/80 border-slate-700 text-slate-300'
-                  : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+                  : 'bg-rose-950/60 border-rose-500/50 text-rose-300 ring-1 ring-rose-500/30'
               }`}
               title={
                 syncStatus === 'synced'
-                  ? 'Authoritative server persistence active. All records are saved to the server.'
-                  : syncStatus === 'offline'
-                  ? 'Persistent device storage active. Data is safely retained in your browser.'
-                  : 'Click to retry connection to server.'
+                  ? 'Central cloud database connected! All coordinators and devices see identical live data in real time.'
+                  : 'Central cloud database not detected. Click to retry connection.'
               }
             >
-              <Database className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+              <Database className={`w-3.5 h-3.5 shrink-0 ${syncStatus === 'synced' ? 'text-emerald-400' : 'text-rose-400'}`} />
               {syncStatus === 'synced' && (
                 <>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>Server Saved</span>
+                  <span className="font-semibold">Live Cloud Synced (All Users)</span>
                 </>
               )}
               {syncStatus === 'syncing' && (
                 <>
-                  <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />
-                  <span>Saving...</span>
+                  <RefreshCw className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                  <span>Connecting Cloud DB...</span>
                 </>
               )}
-              {syncStatus === 'offline' && (
-                <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  <span>Device Saved</span>
-                </>
-              )}
-              {syncStatus === 'error' && (
+              {(syncStatus === 'error' || syncStatus === 'offline') && (
                 <>
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
-                  <span>Sync Warning</span>
+                  <span className="font-semibold">Cloud DB Disconnected</span>
                 </>
               )}
             </button>
