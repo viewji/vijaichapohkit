@@ -16,10 +16,11 @@ import { exportAllocationsToCsv } from '../lib/csvExport';
 interface HeaderProps {
   onOpenSeedModal: () => void;
   onOpenResetModal: () => void;
+  onOpenCloudDbModal: () => void;
   onLogout: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModal, onLogout }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModal, onOpenCloudDbModal, onLogout }) => {
   const { scheme, validation, syncStatus, refreshFromServer } = useStudy();
 
   const handleExportCsv = () => {
@@ -66,7 +67,13 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModa
             {/* Server / Device Storage Status Badge */}
             {/* Central Multi-User Cloud Sync Badge */}
             <button
-              onClick={() => refreshFromServer()}
+              onClick={() => {
+                if (syncStatus === 'synced') {
+                  refreshFromServer();
+                } else {
+                  onOpenCloudDbModal();
+                }
+              }}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
                 syncStatus === 'synced'
                   ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 ring-1 ring-emerald-500/30'

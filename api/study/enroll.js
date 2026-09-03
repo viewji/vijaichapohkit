@@ -1,46 +1,5 @@
-// Vercel Serverless Function for /api/study/enroll (Strict Centralized Allocation)
-
-function getKvConfig() {
-  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-    return { url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN, name: 'KV_REST_API' };
-  }
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return { url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN, name: 'UPSTASH_REDIS' };
-  }
-
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.endsWith('_REST_API_URL') && value) {
-      const prefix = key.replace(/_REST_API_URL$/, '');
-      const token = process.env[`${prefix}_REST_API_TOKEN`];
-      if (token) {
-        return { url: value, token, name: prefix };
-      }
-    }
-  }
-
-  return null;
-}
-
-async function kvCommand(args) {
-  const kv = getKvConfig();
-  if (!kv) return null;
-  try {
-    const res = await fetch(`${kv.url}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${kv.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(args),
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json ? json.result : null;
-  } catch (e) {
-    console.error('Cloud KV enrollment error:', e);
-    return null;
-  }
-}
+// Vercel Serverless Function for /api/study/enroll (Supports Vercel Blob & Vercel KV)
+import { getStorageMode, getCloudStudyData, saveCloudStudyData } from '../_db.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -56,12 +15,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const kv = getKvConfig();
-    if (!kv) {
+    const mode = getStorageMode();
+    if (mode === 'none') {
       return res.status(503).json({
         success: false,
         error: 'DATABASE_NOT_CONNECTED',
-        message: 'Cannot enroll: Central database is not connected in Vercel. Please connect Vercel KV in your Vercel Dashboard Storage settings.',
+        message: 'Cannot enroll: Central database is not connected in Vercel. Please connect Vercel Blob in your Vercel Dashboard Storage settings.',
       });
     }
 
@@ -72,11 +31,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'Invalid stratum (Must be Male or Female)' });
     }
 
-    const raw = await kvCommand(['GET', 'rct_study_data']);
-    let studyData = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
-
+    let studyData = await getCloudStudyData();
     if (!studyData || !Array.isArray(studyData.slots)) {
-      return res.status(400).json({ success: false, error: 'Central study scheme not initialized in database' });
+      return res.status(400).json({ success: false, error: 'Central study scheme not initialized in cloud database' });
     }
 
     // Check stratum quota
@@ -101,14 +58,14 @@ export default async function handler(req, res) {
 
     studyData.slots[targetIndex] = assignedSlot;
 
-    // Atomically write back to cloud KV so all other users immediately see this slot enrolled
-    await kvCommand(['SET', 'rct_study_data', JSON.stringify(studyData)]);
+    // Atomically persist to cloud storage so all users immediately see it
+    await saveCloudStudyData(studyData);
 
     return res.status(200).json({
       success: true,
       slot: assignedSlot,
       data: studyData,
-      source: 'vercel_kv',
+      source: mode,
     });
   } catch (err) {
     console.error('API /enroll error:', err);

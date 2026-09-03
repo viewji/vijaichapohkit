@@ -24,6 +24,7 @@ interface StudyContextType {
   syncStatus: SyncStatus;
   refreshFromServer: () => Promise<void>;
   cloudDbName?: string;
+  dbDiagnostic?: { error?: string; message?: string; detectedKeys?: string[] };
 }
 
 const StudyContext = createContext<StudyContextType | null>(null);
@@ -48,6 +49,7 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
   const [cloudDbName, setCloudDbName] = useState<string | undefined>(undefined);
+  const [dbDiagnostic, setDbDiagnostic] = useState<{ error?: string; message?: string; detectedKeys?: string[] } | undefined>(undefined);
 
   // Allocation concealment preference
   const [isMasked, setIsMasked] = useState<boolean>(() => {
@@ -67,12 +69,19 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setScheme(res.data);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
           setSyncStatus('synced');
+          setDbDiagnostic(undefined);
           if ((res as any).dbName) setCloudDbName((res as any).dbName);
           return;
         }
       }
 
-      // If database is not connected on server
+      // If database is not connected on server, capture diagnostic keys
+      setDbDiagnostic({
+        error: res.error,
+        message: (res as any).message,
+        detectedKeys: (res as any).detectedKeys || [],
+      });
+
       if (res.error === 'DATABASE_NOT_CONNECTED') {
         setSyncStatus('error');
         return;

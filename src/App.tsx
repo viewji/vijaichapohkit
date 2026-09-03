@@ -6,6 +6,7 @@ import { MasterAllocationTable } from './components/MasterAllocationTable';
 import { AllocationModal } from './components/AllocationModal';
 import { ResetConfirmModal } from './components/ResetConfirmModal';
 import { SchemeConfigModal } from './components/SchemeConfigModal';
+import { CloudDbModal } from './components/CloudDbModal';
 import { AuthGate, AUTH_STORAGE_KEY } from './components/AuthGate';
 import { FileText, CheckCircle2 } from 'lucide-react';
 import { useStudy } from './context/StudyContext';
@@ -19,6 +20,7 @@ export const AppContent: React.FC = () => {
 
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isCloudDbModalOpen, setIsCloudDbModalOpen] = useState(false);
 
   const handleLogout = () => {
     localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -36,6 +38,7 @@ export const AppContent: React.FC = () => {
       <Header
         onOpenSeedModal={() => setIsSeedModalOpen(true)}
         onOpenResetModal={() => setIsResetModalOpen(true)}
+        onOpenCloudDbModal={() => setIsCloudDbModalOpen(true)}
         onLogout={handleLogout}
       />
 
@@ -133,6 +136,10 @@ export const AppContent: React.FC = () => {
       <SchemeConfigModal
         isOpen={isSeedModalOpen}
         onClose={() => setIsSeedModalOpen(false)}
+      />
+      <CloudDbModal
+        isOpen={isCloudDbModalOpen}
+        onClose={() => setIsCloudDbModalOpen(false)}
       />
     </div>
   );
