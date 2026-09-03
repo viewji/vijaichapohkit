@@ -4,9 +4,11 @@ import {
   ShieldCheck, 
   RotateCcw, 
   KeyRound, 
-  FileSpreadsheet,
-  AlertTriangle,
-  Lock
+  FileSpreadsheet, 
+  AlertTriangle, 
+  Lock,
+  Database,
+  RefreshCw
 } from 'lucide-react';
 import { useStudy } from '../context/StudyContext';
 import { exportAllocationsToCsv } from '../lib/csvExport';
@@ -18,7 +20,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModal, onLogout }) => {
-  const { scheme, validation } = useStudy();
+  const { scheme, validation, syncStatus, refreshFromServer } = useStudy();
 
   const handleExportCsv = () => {
     exportAllocationsToCsv(scheme.slots, {
@@ -59,12 +61,53 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModa
             </div>
           </div>
 
-          {/* Validation Status & Quick Actions */}
+          {/* Validation Status, Server Sync & Quick Actions */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Server Sync Status Badge */}
+            <button
+              onClick={() => refreshFromServer()}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                syncStatus === 'synced'
+                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+                  : syncStatus === 'syncing'
+                  ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-300'
+                  : syncStatus === 'offline'
+                  ? 'bg-amber-950/40 border-amber-500/30 text-amber-300'
+                  : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+              }`}
+              title="Server connection status. Click to reload from server."
+            >
+              <Database className="w-3.5 h-3.5 shrink-0" />
+              {syncStatus === 'synced' && (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>Server Saved</span>
+                </>
+              )}
+              {syncStatus === 'syncing' && (
+                <>
+                  <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />
+                  <span>Syncing...</span>
+                </>
+              )}
+              {syncStatus === 'offline' && (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                  <span>Local Mode</span>
+                </>
+              )}
+              {syncStatus === 'error' && (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                  <span>Sync Error</span>
+                </>
+              )}
+            </button>
+
             {/* Mathematical Invariant Badge */}
             {validation.isValid ? (
               <div 
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-medium"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-medium"
                 title="Strict Mathematical Assertion Passed: Exactly 2 Walking Bike & 2 Control per block, 8:8 per stratum, 16:16 overall."
               >
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
@@ -72,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSeedModal, onOpenResetModa
               </div>
             ) : (
               <div 
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/60 border border-rose-500/30 text-rose-400 text-xs font-medium"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-950/60 border border-rose-500/30 text-rose-400 text-xs font-medium"
                 title={validation.errors.join('; ')}
               >
                 <AlertTriangle className="w-4 h-4 text-rose-400" />

@@ -11,11 +11,14 @@ export const EnrollmentDesk: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const currentStats = selectedStratum === 'Male' ? maleStats : femaleStats;
   const isQuotaFull = currentStats.remainingSlots <= 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg(null);
 
     if (isQuotaFull) {
@@ -23,18 +26,23 @@ export const EnrollmentDesk: React.FC = () => {
       return;
     }
 
-    const res = enrollSubject({
-      stratum: selectedStratum,
-      participantCode: participantCode.trim() || undefined,
-      notes: notes.trim() || undefined,
-    });
+    setIsSubmitting(true);
+    try {
+      const res = await enrollSubject({
+        stratum: selectedStratum,
+        participantCode: participantCode.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
 
-    if (res.success) {
-      // Clear form inputs
-      setParticipantCode('');
-      setNotes('');
-    } else {
-      setErrorMsg(res.error || 'Failed to randomize subject.');
+      if (res.success) {
+        // Clear form inputs
+        setParticipantCode('');
+        setNotes('');
+      } else {
+        setErrorMsg(res.error || 'Failed to randomize subject.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -175,14 +183,16 @@ export const EnrollmentDesk: React.FC = () => {
         <div className="pt-1">
           <button
             type="submit"
-            disabled={isQuotaFull}
+            disabled={isQuotaFull || isSubmitting}
             className={`w-full py-3.5 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${
-              isQuotaFull
+              isQuotaFull || isSubmitting
                 ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30 hover:shadow-emerald-900/50 active:scale-[0.99]'
             }`}
           >
-            {isQuotaFull ? (
+            {isSubmitting ? (
+              <span>Assigning & Persisting to Server...</span>
+            ) : isQuotaFull ? (
               <>
                 <UserCheck className="w-4 h-4" />
                 <span>{selectedStratum} Stratum Quota Full (16/16)</span>

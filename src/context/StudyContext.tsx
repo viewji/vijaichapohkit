@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import confetti from 'canvas-confetti';
-import { AllocationSlot, EnrollmentPayload, StratumSex, StratumStats, StudyScheme, ValidationSummary } from '../types';
+import { AllocationSlot, EnrollmentPayload, StratumStats, StudyScheme, SyncStatus, ValidationSummary } from '../types';
 import { generateRandomizationScheme, validateSchemeIntegrity, STUDY_PARAMS } from '../lib/randomization';
+import { fetchStudyFromServer, enrollSubjectOnServer, saveSchemeOnServer, resetStudyOnServer } from '../lib/api';
 
 const STORAGE_KEY = 'RCT_STRATIFIED_RANDOMIZATION_DATA_V1';
 const MASKING_STORAGE_KEY = 'RCT_ALLOCATION_MASKING_PREF_V1';
@@ -13,19 +14,21 @@ interface StudyContextType {
   setIsMasked: (val: boolean | ((prev: boolean) => boolean)) => void;
   enrolledModalSlot: AllocationSlot | null;
   setEnrolledModalSlot: (slot: AllocationSlot | null) => void;
-  enrollSubject: (payload: EnrollmentPayload) => { success: boolean; slot?: AllocationSlot; error?: string };
-  generateNewScheme: (seed?: string) => void;
-  resetEnrollmentsOnly: () => void;
-  fullStudyReset: (seed?: string) => void;
+  enrollSubject: (payload: EnrollmentPayload) => Promise<{ success: boolean; slot?: AllocationSlot; error?: string }>;
+  generateNewScheme: (seed?: string) => Promise<void>;
+  resetEnrollmentsOnly: () => Promise<void>;
+  fullStudyReset: (seed?: string) => Promise<void>;
   maleStats: StratumStats;
   femaleStats: StratumStats;
   totalEnrolled: number;
+  syncStatus: SyncStatus;
+  refreshFromServer: () => Promise<void>;
 }
 
 const StudyContext = createContext<StudyContextType | null>(null);
 
 export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Initialize scheme from localStorage or create fresh validated scheme
+  // Initialize scheme from localStorage as immediate cache while server request is in flight
   const [scheme, setScheme] = useState<StudyScheme>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -35,13 +38,14 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (val.isValid) {
           return parsed;
         }
-        console.warn('Saved scheme failed validation, regenerating fresh sequence:', val.errors);
       }
     } catch (e) {
-      console.error('Failed to parse saved scheme from localStorage', e);
+      console.error('Failed to parse cached scheme from localStorage', e);
     }
     return generateRandomizationScheme();
   });
+
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
 
   // Allocation concealment is ENABLED (masked) by default to eliminate investigator bias
   const [isMasked, setIsMasked] = useState<boolean>(() => {
@@ -51,14 +55,26 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [enrolledModalSlot, setEnrolledModalSlot] = useState<AllocationSlot | null>(null);
 
-  // Persist scheme on changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(scheme));
-    } catch (e) {
-      console.error('Failed to save scheme to localStorage', e);
+  // Initial load from backend server
+  const refreshFromServer = useCallback(async () => {
+    setSyncStatus('syncing');
+    const res = await fetchStudyFromServer();
+    if (res.success && res.data) {
+      const val = validateSchemeIntegrity(res.data.slots);
+      if (val.isValid) {
+        setScheme(res.data);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
+        setSyncStatus('synced');
+        return;
+      }
     }
-  }, [scheme]);
+    // If server is not reachable or returned error, fall back to local cached copy
+    setSyncStatus(res.error?.includes('Failed to fetch') || res.error?.includes('Network') ? 'offline' : 'error');
+  }, []);
+
+  useEffect(() => {
+    refreshFromServer();
+  }, [refreshFromServer]);
 
   // Persist masking preference
   useEffect(() => {
@@ -113,8 +129,8 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const totalEnrolled = maleStats.enrolledTotal + femaleStats.enrolledTotal;
 
-  // Enroll next available subject in the selected stratum
-  const enrollSubject = (payload: EnrollmentPayload) => {
+  // Server-authoritative enrollment
+  const enrollSubject = async (payload: EnrollmentPayload) => {
     const currentStats = payload.stratum === 'Male' ? maleStats : femaleStats;
     if (currentStats.remainingSlots <= 0) {
       return {
@@ -123,12 +139,39 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
     }
 
-    // Find the next pending slot in the given stratum
+    setSyncStatus('syncing');
+
+    // Attempt server-authoritative enrollment first
+    const res = await enrollSubjectOnServer(payload);
+    if (res.success && res.slot && res.data) {
+      setScheme(res.data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
+      setEnrolledModalSlot(res.slot);
+      setSyncStatus('synced');
+
+      // Trigger celebratory confetti
+      try {
+        confetti({
+          particleCount: 50,
+          spread: 60,
+          origin: { y: 0.65 },
+          colors: res.slot.arm === 'Walking Bike' ? ['#10b981', '#34d399', '#6ee7b7'] : ['#6366f1', '#818cf8', '#a5b4fc'],
+        });
+      } catch {
+        // ignore
+      }
+
+      return { success: true, slot: res.slot };
+    }
+
+    // Fallback: If server is offline, perform local assignment
+    console.warn('Server enrollment failed or offline, performing local fallback:', res.error);
     const targetSlotIndex = scheme.slots.findIndex(
       (s) => s.stratum === payload.stratum && s.status === 'Pending'
     );
 
     if (targetSlotIndex === -1) {
+      setSyncStatus('error');
       return {
         success: false,
         error: `No unassigned slots found for ${payload.stratum}.`,
@@ -136,69 +179,83 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const targetSlot = scheme.slots[targetSlotIndex];
-    const timestamp = new Date().toISOString();
-
     const updatedSlot: AllocationSlot = {
       ...targetSlot,
       status: 'Enrolled',
       participantCode: payload.participantCode?.trim() || undefined,
       notes: payload.notes?.trim() || undefined,
-      enrolledAt: timestamp,
+      enrolledAt: new Date().toISOString(),
     };
 
     const newSlots = [...scheme.slots];
     newSlots[targetSlotIndex] = updatedSlot;
+    const localScheme = { ...scheme, slots: newSlots };
 
-    setScheme((prev) => ({
-      ...prev,
-      slots: newSlots,
-    }));
-
-    // Trigger reveal modal
+    setScheme(localScheme);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(localScheme));
     setEnrolledModalSlot(updatedSlot);
+    setSyncStatus('offline');
 
-    // Subtle clinical reveal celebration
-    try {
-      confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: { y: 0.65 },
-        colors: updatedSlot.arm === 'Walking Bike' ? ['#10b981', '#34d399', '#6ee7b7'] : ['#6366f1', '#818cf8', '#a5b4fc'],
-      });
-    } catch {
-      // ignore
-    }
+    // Try background sync to server
+    saveSchemeOnServer(localScheme).then((r) => {
+      if (r.success) setSyncStatus('synced');
+    });
 
     return { success: true, slot: updatedSlot };
   };
 
-  // Generate a completely new randomized scheme (e.g. with new seed)
-  const generateNewScheme = (seed?: string) => {
+  // Generate a completely new randomized scheme
+  const generateNewScheme = async (seed?: string) => {
+    setSyncStatus('syncing');
     const fresh = generateRandomizationScheme(seed);
     setScheme(fresh);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
+    setEnrolledModalSlot(null);
+
+    const res = await saveSchemeOnServer(fresh);
+    if (res.success) {
+      setSyncStatus('synced');
+    } else {
+      setSyncStatus('offline');
+    }
+  };
+
+  // Reset enrollment status for all participants
+  const resetEnrollmentsOnly = async () => {
+    setSyncStatus('syncing');
+    const res = await resetStudyOnServer('enrollments');
+    if (res.success && res.data) {
+      setScheme(res.data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
+      setSyncStatus('synced');
+    } else {
+      // Local fallback
+      const resetSlots = scheme.slots.map((s) => ({
+        ...s,
+        status: 'Pending' as const,
+        participantCode: undefined,
+        notes: undefined,
+        enrolledAt: undefined,
+      }));
+      const updated = { ...scheme, slots: resetSlots };
+      setScheme(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      setSyncStatus('offline');
+    }
     setEnrolledModalSlot(null);
   };
 
-  // Keep the current sequence but reset enrollment status for all participants
-  const resetEnrollmentsOnly = () => {
-    const resetSlots = scheme.slots.map((s) => ({
-      ...s,
-      status: 'Pending' as const,
-      participantCode: undefined,
-      notes: undefined,
-      enrolledAt: undefined,
-    }));
-
-    setScheme((prev) => ({
-      ...prev,
-      slots: resetSlots,
-    }));
-    setEnrolledModalSlot(null);
-  };
-
-  // Full reset (re-generates fresh sequence with optional seed)
-  const fullStudyReset = (seed?: string) => {
-    generateNewScheme(seed);
+  // Full reset
+  const fullStudyReset = async (seed?: string) => {
+    setSyncStatus('syncing');
+    const res = await resetStudyOnServer('full', seed);
+    if (res.success && res.data) {
+      setScheme(res.data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(res.data));
+      setSyncStatus('synced');
+    } else {
+      await generateNewScheme(seed);
+    }
   };
 
   return (
@@ -217,6 +274,8 @@ export const StudyProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         maleStats,
         femaleStats,
         totalEnrolled,
+        syncStatus,
+        refreshFromServer,
       }}
     >
       {children}

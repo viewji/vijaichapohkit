@@ -1,0 +1,263 @@
+{
+  "schemeId": "SCHEME-1788422098290-ZRLEK",
+  "createdAt": "2026-09-03T07:54:58.290Z",
+  "slots": [
+    {
+      "id": "M01",
+      "stratum": "Male",
+      "blockNumber": 1,
+      "blockPosition": 1,
+      "arm": "Walking Bike",
+      "status": "Enrolled",
+      "enrolledAt": "2026-09-03T07:55:43.658Z"
+    },
+    {
+      "id": "M02",
+      "stratum": "Male",
+      "blockNumber": 1,
+      "blockPosition": 2,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "M03",
+      "stratum": "Male",
+      "blockNumber": 1,
+      "blockPosition": 3,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "M04",
+      "stratum": "Male",
+      "blockNumber": 1,
+      "blockPosition": 4,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "M05",
+      "stratum": "Male",
+      "blockNumber": 2,
+      "blockPosition": 1,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "M06",
+      "stratum": "Male",
+      "blockNumber": 2,
+      "blockPosition": 2,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "M07",
+      "stratum": "Male",
+      "blockNumber": 2,
+      "blockPosition": 3,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "M08",
+      "stratum": "Male",
+      "blockNumber": 2,
+      "blockPosition": 4,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "M09",
+      "stratum": "Male",
+      "blockNumber": 3,
+      "blockPosition": 1,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "M10",
+      "stratum": "Male",
+      "blockNumber": 3,
+      "blockPosition": 2,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "M11",
+      "stratum": "Male",
+      "blockNumber": 3,
+      "blockPosition": 3,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "M12",
+      "stratum": "Male",
+      "blockNumber": 3,
+      "blockPosition": 4,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "M13",
+      "stratum": "Male",
+      "blockNumber": 4,
+      "blockPosition": 1,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "M14",
+      "stratum": "Male",
+      "blockNumber": 4,
+      "blockPosition": 2,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "M15",
+      "stratum": "Male",
+      "blockNumber": 4,
+      "blockPosition": 3,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "M16",
+      "stratum": "Male",
+      "blockNumber": 4,
+      "blockPosition": 4,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F01",
+      "stratum": "Female",
+      "blockNumber": 1,
+      "blockPosition": 1,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F02",
+      "stratum": "Female",
+      "blockNumber": 1,
+      "blockPosition": 2,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "F03",
+      "stratum": "Female",
+      "blockNumber": 1,
+      "blockPosition": 3,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F04",
+      "stratum": "Female",
+      "blockNumber": 1,
+      "blockPosition": 4,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "F05",
+      "stratum": "Female",
+      "blockNumber": 2,
+      "blockPosition": 1,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "F06",
+      "stratum": "Female",
+      "blockNumber": 2,
+      "blockPosition": 2,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F07",
+      "stratum": "Female",
+      "blockNumber": 2,
+      "blockPosition": 3,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F08",
+      "stratum": "Female",
+      "blockNumber": 2,
+      "blockPosition": 4,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "F09",
+      "stratum": "Female",
+      "blockNumber": 3,
+      "blockPosition": 1,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F10",
+      "stratum": "Female",
+      "blockNumber": 3,
+      "blockPosition": 2,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "F11",
+      "stratum": "Female",
+      "blockNumber": 3,
+      "blockPosition": 3,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F12",
+      "stratum": "Female",
+      "blockNumber": 3,
+      "blockPosition": 4,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "F13",
+      "stratum": "Female",
+      "blockNumber": 4,
+      "blockPosition": 1,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F14",
+      "stratum": "Female",
+      "blockNumber": 4,
+      "blockPosition": 2,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    },
+    {
+      "id": "F15",
+      "stratum": "Female",
+      "blockNumber": 4,
+      "blockPosition": 3,
+      "arm": "Control",
+      "status": "Pending"
+    },
+    {
+      "id": "F16",
+      "stratum": "Female",
+      "blockNumber": 4,
+      "blockPosition": 4,
+      "arm": "Walking Bike",
+      "status": "Pending"
+    }
+  ]
+}

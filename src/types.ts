@@ -4,6 +4,8 @@ export type Arm = 'Walking Bike' | 'Control';
 
 export type EnrollmentStatus = 'Pending' | 'Enrolled';
 
+export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error';
+
 export interface AllocationSlot {
   id: string; // e.g. 'M01' - 'M16', 'F01' - 'F16'
   stratum: StratumSex;
